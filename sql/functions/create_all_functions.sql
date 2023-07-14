@@ -1,0 +1,14 @@
+\i sql/functions/partition_get_last_partition_details.sql
+\i sql/functions/partition_add_concurrent_index_on_partitioned_table.sql
+\i sql/functions/partition_add_constraints.sql
+\i sql/functions/partition_add_foreign_key_on_partitioned_table.sql
+\i sql/functions/partition_add_up_to_nr_of_free_partitions.sql
+\i sql/functions/partition_copy_fk_to_new_table.sql
+\i sql/functions/partition_copy_indexes_to_new_table.sql
+\i sql/functions/partition_create_table_inherits_from_template.sql
+\i sql/functions/partition_calculate_free_partitions.sql
+\i sql/functions/partition_declarative.sql
+\i sql/functions/partition_detach_partition.sql
+\i sql/functions/partition_drop_detached_partition.sql
+\i sql/functions/partition_inheritance.sql
+\i sql/functions/partition_table.sql
