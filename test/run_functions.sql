@@ -1,6 +1,6 @@
 -- Convert tables into partioned tables
-SELECT dba.partition_table('public','test_partition','id','1','7000000','1000000','native');
-SELECT dba.partition_table('public','test_partition_date','trip_date','1970-01-01','2023-01-01','1 month','native', TRUE);
+SELECT dba.partition_table('public','test_partition','id','1','6999999','1000000','native');
+SELECT dba.partition_table('public','test_partition_date','trip_date','1970-01-01','2023-01-01','1 month','native');
 SELECT dba.partition_table('public','test_partition_datetime','trip_date','1970-01-01','2023-01-01','1 week','native');
 SELECT dba.partition_table('public','test_partition_inh','id','1','999999','1000','inheritance');
 
@@ -11,8 +11,8 @@ SELECT dba.partition_add_up_to_nr_of_free_partitions('public','test_partition_da
 
 -- Create different type of indexes to partitioned table
 SELECT dba.partition_add_concurrent_index_on_partitioned_table('public','test_partition', ARRAY['vendor_id']) \gexec
-SELECT dba.partition_add_concurrent_index_on_partitioned_table('public','test_partition_date', ARRAY['lower(extra)', 'rate_code_id desc nulls first'], 'btree') \gexec
-SELECT dba.partition_add_concurrent_index_on_partitioned_table('public','test_partition_datetime', ARRAY['id'], 'btree', true) \gexec
+SELECT dba.partition_add_concurrent_index_on_partitioned_table('public','test_partition_date', ARRAY['lower(extra)', 'rate_code_id desc nulls first'], v_method => 'btree') \gexec
+SELECT dba.partition_add_concurrent_index_on_partitioned_table('public','test_partition_datetime', ARRAY['id'], v_method => 'btree', v_is_unique => true) \gexec
 
 -- Add foreign key to a partitioned table
 SELECT dba.partition_add_foreign_key_on_partitioned_table('public','test_partition_datetime', 'test_partition_test_date_time_test_partition_fk', 'test_partition', ARRAY['id'], ARRAY['id']) \gexec

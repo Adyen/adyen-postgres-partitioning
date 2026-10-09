@@ -4,12 +4,12 @@ The function will rename original table to $TABLE_mammoth, create an empty table
 called $TABLE and put it as a parent, create another child $TABLE_$v_endkey$v_interval
 and another one $TABLE_overflow. E.g.:
 
-From: test_partition
+From: orders
 to:
-    - test_partition (parent table)
-      - test_partition_mammoth
-      - test_partition_overflow
-      - test_partition_20230101_20230201
+    - orders (parent table)
+      - orders_mammoth
+      - orders_overflow
+      - orders_20220401_20220430
 
     PARAMETER       TYPE    DESCRIPTION
     v_schema        TEXT    schema location for the table
@@ -21,8 +21,8 @@ to:
     v_interval      TEXT    length for the new partition table, e.g.: 1 month, 1 week, 1000000000, and so on
 
 Example:
-    SELECT dba.partition_inheritance('public','test_partition','creation_date','2000-01-01','2023-01-01','1 month');
-    SELECT dba.partition_inheritance('public','test_partition','id','1','70000000000','1000000000');
+    SELECT dba.partition_inheritance('public','orders','order_date','2000-01-01','2022-03-31','1 month');
+    SELECT dba.partition_inheritance('public','order_logs','log_id','1','70000000','1000000');
 
 Caveats:
     Index names from the original $TABLE are not carried to any new tables, instead the names will follow postgres design
@@ -32,10 +32,10 @@ Limitations:
     Due to the complexity of table references, this function will not work if other tables are referencing to it.
     On the other hand, foreign keys on the table will be copied over to the new tables just fine.
 */
-
 CREATE OR REPLACE FUNCTION dba.partition_inheritance(v_schemaname TEXT, v_tablename TEXT, v_keycolumn TEXT, v_startkey TEXT, v_endkey TEXT, v_interval TEXT)
-RETURNS BOOLEAN LANGUAGE plpgsql AS $func$
-
+RETURNS BOOLEAN LANGUAGE plpgsql
+SET search_path = pg_catalog, dba, pg_temp
+AS $func$
 DECLARE
     v_suffix        TEXT := 'mammoth';
     v_options       TEXT;
@@ -77,34 +77,34 @@ BEGIN
             EXECUTE format($sel$SELECT %I(%L::%I + 1)$sel$, v_coltype, v_endkey, v_coltype) INTO v_newstart;
             EXECUTE format($sel$SELECT %I(%L::%I + %L::INTERVAL - '1 day'::INTERVAL)$sel$, v_coltype, v_newstart, v_coltype, v_interval) INTO v_newend;
         ELSE
-            RAISE EXCEPTION 'Data type % IS NOT SUPPORTED.', v_coltype USING ERRCODE='ADYEN';
+            RAISE EXCEPTION 'Data type % IS NOT SUPPORTED.', v_coltype;
         END IF;
     END IF;
 
-    RAISE DEBUG 'Finding constraint from other tables connected to %', v_schemaname || '.' || v_tablename USING ERRCODE='ADYEN';
-    SELECT n.nspname || '.' || conrelid::regclass
+    RAISE DEBUG 'Finding constraint from other tables connected to %', v_schemaname || '.' || v_tablename;
+    SELECT conrelid::regclass::text
     INTO v_referenced
     FROM pg_constraint c
     JOIN pg_namespace n ON n.oid = c.connamespace
     WHERE contype = 'f' AND n.nspname = LOWER(v_schemaname)
             AND conname IN (SELECT constraint_name FROM information_schema.constraint_table_usage WHERE table_schema = LOWER(v_schemaname) AND table_name = LOWER(v_tablename));
     IF v_referenced IS NOT NULL THEN
-        RAISE EXCEPTION 'FAILING: table % is being referenced by other tables, partitioning using inheritance IS NOT possible', v_schemaname || '.' || v_tablename USING ERRCODE='ADYEN';
+        RAISE EXCEPTION 'FAILING: table % is being referenced by other tables, partitioning using inheritance IS NOT possible', v_schemaname || '.' || v_tablename;
     END IF;
 
     v_partitionname := replace(regexp_replace(v_newstart::TEXT, '\ .*', ''), '-', '') || '_' || replace(regexp_replace(v_newend::TEXT, '\ .*', ''), '-', '');
     RAISE DEBUG 'Beginning value: %, new partition value start: % and end: %, column type: %, interval: %, partition name: %',
-        v_startkey, v_newstart, v_newend, v_coltype, v_interval, v_partitionname USING ERRCODE='ADYEN';
+        v_startkey, v_newstart, v_newend, v_coltype, v_interval, v_partitionname;
 
-    RAISE DEBUG 'original table name: %, new table name: %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix USING ERRCODE='ADYEN';
-    EXECUTE format('ALTER TABLE %I.%I RENAME TO %I_%I', v_schemaname, v_tablename, v_tablename, v_suffix);
+    RAISE DEBUG 'original table name: %, new table name: %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix;
+    EXECUTE format('ALTER TABLE %I.%I RENAME TO %I', v_schemaname, v_tablename, v_tablename || '_' || v_suffix);
 
-    RAISE DEBUG 'Creating new table % based on %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix USING ERRCODE='ADYEN';
-    EXECUTE format('CREATE TABLE %I.%I (LIKE %I.%I_%I INCLUDING ALL)',
-        v_schemaname, v_tablename, v_schemaname, v_tablename, v_suffix
+    RAISE DEBUG 'Creating new table % based on %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix;
+    EXECUTE format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
+        v_schemaname, v_tablename, v_schemaname, v_tablename || '_' || v_suffix
         );
 
-    RAISE DEBUG 'Copying FK % based on %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix USING ERRCODE='ADYEN';
+    RAISE DEBUG 'Copying FK % based on %', v_schemaname || '.' || v_tablename, v_tablename || '_' || v_suffix;
     PERFORM dba.partition_copy_fk_to_new_table(v_schemaname, v_tablename || '_' || v_suffix, v_tablename);
 
     SELECT btrim(reloptions::text,'{}')
@@ -113,20 +113,20 @@ BEGIN
     JOIN pg_namespace AS ns ON c.relnamespace=ns.oid
     WHERE relname = LOWER(v_tablename || '_' || v_suffix);
     IF v_options IS NOT NULL THEN
-        RAISE DEBUG 'Setting table options: %', v_options USING ERRCODE='ADYEN';
-        EXECUTE format('ALTER TABLE ' || v_schemaname || '.' || v_tablename || ' SET (' || v_options || ');');
+        RAISE DEBUG 'Setting table options: %', v_options;
+        EXECUTE format('ALTER TABLE %I.%I SET (%s);', v_schemaname, v_tablename, v_options);
     END IF;
 
-    RAISE DEBUG 'Putting % as a child of %.', v_schemaname || '.' || v_tablename || '_' || v_suffix, v_schemaname || '.' || v_tablename USING ERRCODE='ADYEN';
-    EXECUTE format('ALTER TABLE %I.%I_%I INHERIT %I.%I',
-        v_schemaname, v_tablename, v_suffix, v_schemaname, v_tablename);
+    RAISE DEBUG 'Putting % as a child of %.', v_schemaname || '.' || v_tablename || '_' || v_suffix, v_schemaname || '.' || v_tablename;
+    EXECUTE format('ALTER TABLE %I.%I INHERIT %I.%I',
+        v_schemaname, v_tablename || '_' || v_suffix, v_schemaname, v_tablename);
 
     RAISE DEBUG 'Adding CHECK constraint on % called %_check, for % BETWEEN % AND %',
-        v_schemaname || '.' || v_tablename || '_' || v_suffix, v_tablename || '_' ||  v_suffix, v_keycolumn, v_startkey, v_endkey USING ERRCODE='ADYEN';
-    EXECUTE format('ALTER TABLE %I.%I ADD CONSTRAINT %I_%I_check CHECK (%I BETWEEN %L AND %L) NOT VALID',
-        v_schemaname, v_tablename || '_' || v_suffix, v_tablename, v_suffix, v_keycolumn, v_startkey, v_endkey);
+        v_schemaname || '.' || v_tablename || '_' || v_suffix, v_tablename || '_' ||  v_suffix, v_keycolumn, v_startkey, v_endkey;
+    EXECUTE format('ALTER TABLE %I.%I ADD CONSTRAINT %I CHECK (%I BETWEEN %L AND %L) NOT VALID',
+        v_schemaname, v_tablename || '_' || v_suffix, v_tablename || '_' || v_suffix || '_check', v_keycolumn, v_startkey, v_endkey);
 
-    RAISE DEBUG 'Setting the % CHECK as VALID', v_tablename || '_'|| v_suffix || '_check' USING ERRCODE='ADYEN';
+    RAISE DEBUG 'Setting the % CHECK as VALID', v_tablename || '_'|| v_suffix || '_check';
     EXECUTE FORMAT('UPDATE pg_constraint AS c SET convalidated=true FROM pg_namespace n WHERE c.connamespace=n.oid AND conname=%L AND nspname=%L',
         v_tablename || '_' || v_suffix || '_check', v_schemaname);
 
@@ -135,17 +135,17 @@ BEGIN
         dba.partition_copy_fk_to_new_table(v_schemaname, v_tablename, v_tablename || '_' || v_partitionname);
 
     RAISE DEBUG 'Adding CHECK constraint on % called %_check, for % BETWEEN % AND %',
-        v_schemaname || '.' || v_tablename || '_' || v_partitionname, v_tablename || '_' || v_partitionname, v_keycolumn, v_newstart, v_newend USING ERRCODE='ADYEN';
+        v_schemaname || '.' || v_tablename || '_' || v_partitionname, v_tablename || '_' || v_partitionname, v_keycolumn, v_newstart, v_newend;
     EXECUTE format('ALTER TABLE %I.%I ADD CONSTRAINT %I_check CHECK (%I BETWEEN %L AND %L)',
         v_schemaname, v_tablename || '_' || v_partitionname, v_tablename || '_' || v_partitionname, v_keycolumn, v_newstart, v_newend);
 
-    RAISE DEBUG 'Creating overflow table % based on %', v_schemaname || '.' || v_tablename || '_overflow', v_tablename USING ERRCODE='ADYEN';
+    RAISE DEBUG 'Creating overflow table % based on %', v_schemaname || '.' || v_tablename || '_overflow', v_tablename;
     EXECUTE format(
             'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
             v_schemaname, v_tablename || '_overflow', v_schemaname, v_tablename
         );
 
-    RAISE DEBUG 'Putting % as a child of %', v_schemaname || '.' || v_tablename || '_overflow', v_schemaname || '.' || v_tablename USING ERRCODE='ADYEN';
+    RAISE DEBUG 'Putting % as a child of %', v_schemaname || '.' || v_tablename || '_overflow', v_schemaname || '.' || v_tablename;
     EXECUTE format('ALTER TABLE %I.%I INHERIT %I.%I',
         v_schemaname, v_tablename || '_overflow', v_schemaname, v_tablename);
 
