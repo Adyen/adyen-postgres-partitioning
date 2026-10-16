@@ -31,7 +31,6 @@ CREATE TABLE public.test_partition (
 ALTER TABLE public.test_partition
     ADD CONSTRAINT test_partition_pkey PRIMARY KEY (id);
 
-DROP TABLE IF EXISTS public.test_partition_date_template;
 DROP TABLE IF EXISTS public.test_partition_date CASCADE;
 CREATE TABLE public.test_partition_date (
     id bigint,
@@ -63,7 +62,7 @@ CREATE TABLE public.test_partition_date (
 );
 
 ALTER TABLE public.test_partition_date
-    ADD CONSTRAINT test_partition_date_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT test_partition_date_pkey PRIMARY KEY (id, trip_date);
 
 
 DROP TABLE IF EXISTS public.test_partition_datetime CASCADE;

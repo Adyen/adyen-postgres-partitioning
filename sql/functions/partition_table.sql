@@ -4,13 +4,14 @@ Native partitioning supports ONLY by RANGE.
 
 The function will rename original table to $TABLE_mammoth, create an empty table
 called $TABLE and put it as main table, create another partition $TABLE_$v_endkey$v_interval
+and another one $TABLE_default. E.g.:
 
-From: test_partition
+From: orders
 to:
-    - test_partition (parent table)
-      - test_partition_mammoth
-      - test_partition_20220401_20220430
-    - test_partition_template (if the column is not in PK/unique index)
+    - orders (parent table)
+      - orders_mammoth
+      - orders_default
+      - orders_20220401_20220430
 
     PARAMETER       TYPE    DESCRIPTION
     v_schema        TEXT    schema location for the table
@@ -21,14 +22,13 @@ to:
     v_endkey        TEXT    LAST VALUE for inheritance, NEW VALUE for native *)
     v_interval      TEXT    length for the new partition table, e.g.: 1 month, 1 week, 1000000000, and so on
     v_type          TEXT    type of partitioning: native or inheritance
-    v_nopk          BOOLEAN set to true if the partition column is not in primary key or unique index;
-                            discouraged, unless application can ensure the data validity
+    v_nopk          BOOLEAN DEPRECATED — pass FALSE or omit. TRUE raises an error.
     v_move_trg      BOOLEAN set to true if you want to move triggers to newly partitioned table
 
 Example:
-    SELECT dba.partition_table('public','test_partition','id','1','999999','1000','inheritance');
-    SELECT dba.partition_table('public','test_partition','id','1','1000000','1000','native');
-    SELECT dba.partition_table('public','test_partition_date','trip_date','1970-01-01','2023-01-01','1 month','native',TRUE,TRUE);
+    SELECT dba.partition_table('public','orders','order_date','2000-01-01','2022-03-31','1 month','inheritance');
+    SELECT dba.partition_table('public','orders','order_date','2000-01-01','2022-04-01','1 month','native');
+    SELECT dba.partition_table('public','order_logs','log_id','1','70000000','1000000','native');
 
 Limitations:
     - In inheritance based partitioning, if the table is being referenced by other tables,
@@ -44,18 +44,23 @@ Notes:
     *) Postgres native partitioning where the last value is exclusive
 */
 CREATE OR REPLACE FUNCTION dba.partition_table(v_schemaname TEXT, v_tablename TEXT, v_keycolumn TEXT, v_startkey TEXT, v_endkey TEXT, v_interval TEXT, v_type TEXT, v_nopk BOOLEAN DEFAULT FALSE, v_move_trg BOOLEAN DEFAULT FALSE)
-RETURNS BOOLEAN LANGUAGE plpgsql AS $func$
+RETURNS BOOLEAN LANGUAGE plpgsql
+SET search_path = pg_catalog, dba, pg_temp
+AS $func$
 BEGIN
+    IF v_nopk IS TRUE THEN
+        RAISE EXCEPTION 'partition_table: v_nopk is deprecated and cannot be TRUE. Pass FALSE or omit it.';
+    END IF;
+
     RAISE DEBUG 'Converting table % using % partitioning method',
-        v_schemaname || '.' || v_tablename, v_type USING ERRCODE='ADYEN';
+        v_schemaname || '.' || v_tablename, v_type;
     IF LOWER(v_type) = 'native' THEN
         PERFORM dba.partition_native(v_schemaname, v_tablename, v_keycolumn, v_startkey, v_endkey, v_interval, v_nopk, v_move_trg);
     ELSIF LOWER(v_type) = 'inheritance' THEN
         PERFORM dba.partition_inheritance(v_schemaname, v_tablename, v_keycolumn, v_startkey, v_endkey, v_interval);
     ELSE
-        RAISE EXCEPTION '% IS NOT SUPPORTED.', v_type USING HINT = 'ADYEN: supported types are native and inheritance';
+        RAISE EXCEPTION '% IS NOT SUPPORTED.', v_type USING HINT = 'supported types are native and inheritance';
     END IF;
     RETURN TRUE;
 END
 $func$;
-
